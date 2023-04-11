@@ -13,7 +13,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
 # Change TARGET_URL to None to choose randomly from Common Crawl:
-TARGET_URL = None
+TARGET_URL = 'https://yoshuabengio.org/'
 CRAWL = 'CC-MAIN-2023-14'
 CRAWL_DATA_BASE_PATH = 'crawl_data'
 CRAWL_DATA_PATH = os.path.join(CRAWL_DATA_BASE_PATH, CRAWL)
