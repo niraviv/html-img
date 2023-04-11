@@ -1,0 +1,1 @@
+<a href="https://yoshuabengio.org/2023/03/21/scaling-in-the-service-of-reasoning-model-based-ml/">Scaling in the service of reasoning &amp; model-based ML</a>
