@@ -1,1 +1,0 @@
-<span class="screen-reader-text">Slowing down development of AI systems passing the Turing test</span>

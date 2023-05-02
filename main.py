@@ -1,129 +1,101 @@
-import sys
 import os
-import random
-import gzip
+import json
 import requests
 from bs4 import BeautifulSoup
-from warcio.archiveiterator import ArchiveIterator
 from selenium import webdriver
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, TimeoutException, \
+    MoveTargetOutOfBoundsException
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Change TARGET_URL to None to choose randomly from Common Crawl:
-TARGET_URL = 'https://yoshuabengio.org/'
-CRAWL = 'CC-MAIN-2023-14'
-CRAWL_DATA_BASE_PATH = 'crawl_data'
-CRAWL_DATA_PATH = os.path.join(CRAWL_DATA_BASE_PATH, CRAWL)
-OUTPUT_PATH = 'screenshots'
 
-random.seed(42)
-
-
-def create_dirs():
-    for dir_path in [CRAWL_DATA_BASE_PATH, CRAWL_DATA_PATH, OUTPUT_PATH]:
-        if not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-
-
-def download_warc_paths_file():
-    warc_paths_file_name = os.path.join(CRAWL_DATA_PATH, 'warc_paths.txt')
-    if not os.path.isfile(warc_paths_file_name):
-        print('WARC paths file not present. Downloading.')
-        warc_paths_url = f'https://data.commoncrawl.org/crawl-data/{CRAWL}/warc.paths.gz'
-        response = requests.get(warc_paths_url)
-        response.raise_for_status()
-        index_file_content = gzip.decompress(response.content).decode('utf-8')
-        with open(warc_paths_file_name, 'w') as f:
-            f.write(index_file_content)
-    print('WARC paths file present.')
-    return warc_paths_file_name
-
-
-def download_random_warc_file(warc_paths_file_name):
-    warc_file_name = os.path.join(CRAWL_DATA_PATH, 'warc.gz')
-    if not os.path.isfile(warc_file_name):
-        with open(warc_paths_file_name, 'r') as f:
-            warc_paths = f.readlines()
-        rand_warc_path = random.choice(warc_paths).strip()
-        rand_warc_url = f'https://data.commoncrawl.org/{rand_warc_path}'
-        print(f'WARC file not present. Downloading random WARC URL:')
-        print(rand_warc_url)
-        response = requests.get(rand_warc_url)
-        response.raise_for_status()
-        with open(warc_file_name, 'wb') as f:
-            f.write(response.content)
-    print('WARC file present.')
-    return warc_file_name
-
-
-def is_valid_record(r):
-    return r.rec_type == 'response' and r.http_headers.get_header('Content-Type') == 'text/html'
-
-
-def get_random_record_from_warc_file(warc_file_name):
-    with open(warc_file_name, 'rb') as f:
-        arc_iter = ArchiveIterator(f)
-        records = [r for r in arc_iter if is_valid_record(r)]
-
-    return random.choice(records)
-
-
-def get_screenshots_from_url(url):
-    print('Continuing will send requests to the following URL:')
-    print(url)
-    if input(f'Are you sure? (y/n)').lower() != 'y':
-        sys.exit(0)
+def save_text_elements_and_screenshots(url):
+    # Get website content
     response = requests.get(url)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, 'html.parser')
-    driver = webdriver.Chrome(ChromeDriverManager().install())  # Note that this will install Chrome driver manager.
-    actions = ActionChains(driver)
+    if response.status_code != 200:
+        print("Error: Unable to access the website.")
+        return
 
-    # Set the window size to avoid cutting off the elements
-    driver.set_window_size(1920, 1080)
+    # Parse website content and extract text elements
+    soup = BeautifulSoup(response.content, "html.parser")
+    text_elements = [element for element in soup.find_all(string=True) if
+                     element.parent.name not in ['script', 'style', 'meta', 'link', 'noscript']]
 
+    # Filter out text elements containing only whitespace
+    text_elements = [element for element in text_elements if element.strip()]
+
+    # Create a directory to save screenshots
+    screenshot_dir = "screenshots"
+    if not os.path.exists(screenshot_dir):
+        os.makedirs(screenshot_dir)
+
+    # Initialize webdriver (automatically managed by webdriver-manager)
+    driver = webdriver.Chrome(ChromeDriverManager().install())
+
+    # Set the window size to a common resolution
+    driver.set_window_size(1366, 768)
+
+    # Open the website in the webdriver
     driver.get(url)
 
-    # Wait for the page to fully load
-    WebDriverWait(driver, 10).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'body')))
+    # Create a dictionary to store the mapping between index and text element
+    index_text_mapping = {}
+    screenshot_index = 0
 
-    # Find all text-containing elements and take screenshots
-    text_elements = soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'li', 'span', 'button'])
-    for i, element in enumerate(text_elements):
+    # Keep track of the previous element's location to detect duplicates
+    prev_element_location = None
+
+    # Iterate through the text elements, hover over each one, and take a screenshot
+    for index, element in enumerate(text_elements):
         try:
-            xpath = '//' + element.name + '[text()="' + element.text.replace('"', '\\"') + '"]'
-            screen_element = driver.find_element_by_xpath(xpath)
+            # Get the selenium WebElement from the BeautifulSoup element
+            xpath = f"//*[text()[contains(., {repr(element.strip())})]]"
+            selenium_element = WebDriverWait(driver, 2).until(EC.presence_of_element_located((By.XPATH, xpath)))
 
-            # To take a screenshot of the specific element only:
-            screen_element.screenshot(os.path.join(OUTPUT_PATH, f'{i}_element_only.png'))
+            # Check if the element is interactable (has size and location)
+            if selenium_element.size["height"] == 0 or selenium_element.size["width"] == 0:
+                raise ElementNotInteractableException("Element not interactable")
 
-            # To take a screenshot of the entire screen:
-            actions.move_to_element(screen_element).perform()
-            driver.save_screenshot(os.path.join(OUTPUT_PATH, f'{i}_full_screen.png'))
+            # Check if the current element's location is the same as the previous element's location
+            current_element_location = selenium_element.location
+            if prev_element_location and current_element_location == prev_element_location:
+                continue  # Skip duplicates with the same position on the page
 
-            # To save the element code:
-            with open(os.path.join(OUTPUT_PATH, f'{i}.txt'), 'w') as f:
-                f.write(str(element))
-        except Exception as e:
-            print(f"Error capturing screenshot for element {i}: {e}")
+            # Scroll the element into view
+            driver.execute_script("arguments[0].scrollIntoView();", selenium_element)
 
+            # Move cursor to the element
+            actions = ActionChains(driver)
+            actions.move_to_element(selenium_element).perform()
+
+            # Add the mapping to the dictionary
+            index_text_mapping[screenshot_index] = element.strip()
+
+            # Save the mapping to disk
+            with open("index_text_mapping.json", "w", encoding='utf-8') as f:
+                json.dump(index_text_mapping, f, ensure_ascii=False, indent=4)
+
+            # Save the screenshot after updating the mapping
+            driver.save_screenshot(os.path.join(screenshot_dir, f"screenshot_{screenshot_index}.png"))
+
+            # Increment the screenshot index
+            screenshot_index += 1
+
+            # Update the previous element's location
+            prev_element_location = current_element_location
+
+        except (NoSuchElementException, TimeoutException) as e:
+            print(f"Error processing element {index}: {type(e).__name__} - {str(e)}")
+        except (ElementNotInteractableException, MoveTargetOutOfBoundsException) as e:
+            print(f"Error processing element {index}: {type(e).__name__} - {str(e)}")
+
+    # Close the webdriver
     driver.quit()
 
 
-def main():
-    create_dirs()
-    url = TARGET_URL
-    if not url:
-        warc_paths = download_warc_paths_file()
-        warc_file_name = download_random_warc_file(warc_paths)
-        record = get_random_record_from_warc_file(warc_file_name)
-        url = record.rec_headers['WARC-Target-URI']
-    get_screenshots_from_url(url)
-    print('Done.')
-
-
 if __name__ == "__main__":
-    main()
+    url = input("Enter the website URL: ")
+    save_text_elements_and_screenshots(url)

@@ -1,1 +1,0 @@
-<span class="screen-reader-text">Generative Flow Networks</span>

@@ -1,1 +1,0 @@
-<a href="https://yoshuabengio.org/2023/04/05/slowing-down-development-of-ai-systems-passing-the-turing-test/">Slowing down development of AI systems passing the Turing test</a>

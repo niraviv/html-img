@@ -128,5 +128,4 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Common Crawl:
-crawl_data/
+.idea/
